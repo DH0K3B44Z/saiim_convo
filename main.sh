@@ -11,8 +11,9 @@ while true; do
     echo "5. Contact Admin"
     echo "6. Exit"
     echo "7. Check Your Tokens"
+    echo "9. Setup/Install Termux Environment"
     echo ""
-    read -p "Choose an option [1-7]: " opt
+    read -p "Choose an option [1-7,9]: " opt
 
     if [ "$opt" == "1" ]; then
         python convo.py
@@ -43,6 +44,10 @@ while true; do
         python check_tokens.py
         echo ""
         read -p "Press Enter to return to menu..."
+    elif [ "$opt" == "9" ]; then
+        bash install.sh
+        echo ""
+        read -p "Setup complete. Press Enter to return to menu..."
     else
         echo "Invalid option"
         sleep 1
